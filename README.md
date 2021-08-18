@@ -11,6 +11,53 @@ python >=3, numpy
 ```
 
 
+## Examples
+
+```
+import numpy as np
+import pandas as pd
+import numpy.random as rgt
+from retire.high_dim import ilamm
+from sklearn.linear_model import Lasso
+```
+Generate data from a sparse linear model with high-dimensional covariates. The dimension of the feature/covariate space is `p`, and the sample size is `n`. The errors are generated from (i) the standard normal distribution, and (ii) the *t<sub>2</sub>*-distribution (*t*-distribution with 2 degrees of freedom). Compare `retire.high_dim.l1` with `sklearn.linear_model.Lasso` in terms of estimation error and runtime; the latter uses the coordinate descent (cd) solver.
+
+```
+n = 5000
+p = 20000
+itcp, beta = 2, np.zeros(p)
+beta[:19] = [1.8, 0, 1.6, 0, 1.4, 0, 1.2, 0, 1, 0, -1, 0, -1.2, 0, -1.4, 0, -1.6, 0, -1.8]
+sse = np.zeros([2,2])
+
+rgt.seed(0)
+X = rgt.normal(0, 1, size=(n, p))
+# Normal error
+Y_norm = itcp + X.dot(beta) + rgt.normal(0,1,n)
+# t error 
+Y_t = itcp + X.dot(beta) + rgt.standard_t(2,n)
+
+rgs1 = Lasso(alpha=0.3)
+print('sklearn.linear_model.Lasso (normal error):')
+%time rgs1.fit(X, Y_norm)
+
+rgs2 = ilamm(X, Y_norm, phi=0.5, gamma=1.5, tol=1e-4)
+print('\nretire.high_dim.ilamm (normal error):')
+%time l1_beta, l1_fit = rgs2.l1(Lambda=0.3)
+sse[0,:] = np.array([np.sum((rgs1.coef_ - beta)**2), np.sum((l1_beta[1:] - beta)**2)])
+
+
+print('\nsklearn.linear_model.Lasso (t error):')
+rgs1 = Lasso(alpha=0.3)
+%time rgs1.fit(X, Y_t)
+
+rgs2 = ilamm(X, Y_t, phi=0.5, gamma=1.5, tol=1e-4)
+print('\nretire.high_dim.ilamm (t error):')
+%time l1_beta, l1_fit = rgs2.l1(Lambda=0.3)
+sse[1,:] = np.array([np.sum((rgs1.coef_ - beta)**2), np.sum((l1_beta[1:] - beta)**2)])
+
+pd.DataFrame(sse, columns=['cd', 'ilamm'], index=['normal', 't_2'])
+```
+
 
 ## References
 
