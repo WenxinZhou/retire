@@ -20,18 +20,18 @@ class ilamm():
     Electronic Journal of Statistics 15(1): 3287-3348.
     '''
     
-    def __init__(self, X, Y, intercept=True, phi=0.1, gamma=1.25, max_iter=500, tol=1e-10):
+    def __init__(self, X, Y, intercept=True, phi=0.5, gamma=1.5, max_iter=500, tol=1e-5):
 
         '''
         Internal Optimization Parameters
         --------------------------------
-        phi : initial quadratic coefficient parameter in the ILAMM algorithm; default is 0.1.
+        phi : initial quadratic coefficient parameter in the ILAMM algorithm; default is 0.5.
         
-        gamma : adaptive search parameter that is larger than 1; default is 1.25.
+        gamma : adaptive search parameter that is larger than 1; default is 1.5.
         
         max_iter : maximum numder of iterations in the ILAMM algorithm; default is 500.
         
-        tol : minimum change in (squared) Euclidean distance for stopping LAMM iterations; default is 1e-10.
+        tol : minimum change in (squared) Euclidean distance for stopping LAMM iterations; default is 1e-5.
 
         '''
         self.n, self.p = X.shape
