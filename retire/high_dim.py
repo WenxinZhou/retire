@@ -229,7 +229,7 @@ class ilamm():
         
         a : the constant (>2) in the concave penality; default is 3.7.
         
-        nstep : the number of iterations/steps of the IRW algorithm; default is 5.
+        nstep : number of iterations/steps of the IRW algorithm; default is 5.
 
         standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
         
@@ -338,7 +338,7 @@ class ilamm():
         
         a : the constant (>2) in the concave penality; default is 3.7.
         
-        nstep : the number of iterations/steps of the IRW algorithm; default is 5.
+        nstep : number of iterations/steps of the IRW algorithm; default is 5.
         
         standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
         
