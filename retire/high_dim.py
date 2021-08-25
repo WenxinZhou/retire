@@ -20,7 +20,7 @@ class ilamm():
     '''
     
     opt = {'phi': 0.5, 'gamma': 1.25, 'max_iter': 1e3, \
-           'tol': 1e-4, 'irw_tol': 1e-4, 'nboot': 200}
+           'tol': 1e-5, 'irw_tol': 1e-4, 'nboot': 200}
 
     def __init__(self, X, Y, intercept=True, options={}):
 
@@ -41,7 +41,7 @@ class ilamm():
         
             max_iter : maximum numder of iterations in the ILAMM algorithm; default is 1e3.
         
-            tol : the ILAMM iteration stops when |beta^{k+1} - beta^k|^2/|beta^k|^2 <= tol; default is 1e-4.
+            tol : the ILAMM iteration stops when |beta^{k+1} - beta^k|^2/|beta^k|^2 <= tol; default is 1e-5.
 
             irw_tol : tolerance parameter for stopping iteratively reweighted L1-penalizations; default is 1e-4.
 
@@ -172,9 +172,12 @@ class ilamm():
 
         phi, dev, count = self.opt['phi'], 1, 0
         while dev > self.opt['tol']*np.sum(beta0**2) and count < self.opt['max_iter']:
-            if robust != None: robust *= self.mad(res)
-            grad0 = X.T.dot(self.grad_weight(res, tau, robust))
-            loss_eval0 = self.retire_loss(res, tau, robust)
+            
+            if robust != None: trun = robust*self.mad(res)
+            else: trun = robust
+            
+            grad0 = X.T.dot(self.grad_weight(res, tau, trun))
+            loss_eval0 = self.retire_loss(res, tau, trun)
             beta1 = beta0 - grad0/phi
             beta1[self.itcp:] = self.soft_thresh(beta1[self.itcp:], Lambda/phi)
             diff_beta = beta1 - beta0
@@ -182,7 +185,7 @@ class ilamm():
             
             res = self.Y - X.dot(beta1)
             loss_proxy = loss_eval0 + diff_beta.dot(grad0) + 0.5*phi*dev
-            loss_eval1 = self.retire_loss(res, tau, robust)
+            loss_eval1 = self.retire_loss(res, tau, trun)
             
             while loss_proxy < loss_eval1:
                 phi *= self.opt['gamma']
@@ -192,7 +195,7 @@ class ilamm():
                 dev = diff_beta.dot(diff_beta)
                 res = self.Y - X.dot(beta1)
                 loss_proxy = loss_eval0 + diff_beta.dot(grad0) + 0.5*phi*dev
-                loss_eval1 = self.retire_loss(res, tau, robust)
+                loss_eval1 = self.retire_loss(res, tau, trun)
             
             beta0, phi = beta1, (self.opt['phi'] + phi)/2
             count += 1
@@ -202,7 +205,7 @@ class ilamm():
             if self.itcp: beta1[0] -= self.mX.dot(beta1[1:])
 
         return {'beta': beta1, 'res': res, 'intercept': self.itcp, \
-                'niter': count, 'lambda': Lambda, 'robust': robust}
+                'niter': count, 'lambda': Lambda, 'robust': trun}
 
 
 
@@ -294,11 +297,12 @@ class ilamm():
 
         'size_seq' : a sequence of selected model sizes. 
 
-        'lambda_seq' : a sequence of lambda values in ascending order.
+        'lambda_seq' : a sequence of lambda values in descending order.
         '''
-        lambda_seq, nlambda = np.sort(lambda_seq), len(lambda_seq)
+        lambda_seq, nlambda = np.sort(lambda_seq)[::-1], len(lambda_seq)
         beta_seq = np.zeros(shape=(self.X.shape[1], nlambda))
         res_seq = np.zeros(shape=(self.n, nlambda))
+        
         model = self.l1(lambda_seq[0], tau, robust, standardize=standardize, adjust=False)
         beta_seq[:,0], res_seq[:,0] = model['beta'], model['res']
         
@@ -348,9 +352,9 @@ class ilamm():
 
         'size_seq' : a sequence of selected model sizes. 
 
-        'lambda_seq' : a sequence of lambda values in ascending order.
+        'lambda_seq' : a sequence of lambda values in descending order.
         '''
-        lambda_seq, nlambda = np.sort(lambda_seq), len(lambda_seq)
+        lambda_seq, nlambda = np.sort(lambda_seq)[::-1], len(lambda_seq)
         beta_seq = np.empty(shape=(self.X.shape[1], nlambda))
         res_seq = np.empty(shape=(self.n, nlambda))
         model = self.irw(lambda_seq[0], tau, robust, \
@@ -378,7 +382,7 @@ class cv(ilamm):
     '''
     penalties = ["L1", "SCAD", "MCP"]
     opt = {'phi': 0.5, 'gamma': 1.25, 'max_iter': 1e3, \
-           'tol': 1e-4, 'irw_tol': 1e-4, 'nboot': 200}
+           'tol': 1e-5, 'irw_tol': 1e-4, 'nboot': 200}
 
     def __init__(self, X, Y, intercept=True, options={}):
         self.n, self.p = X.shape
@@ -426,6 +430,7 @@ class cv(ilamm):
         cv_err = np.mean(val_err, axis=0)
         cv_min = min(cv_err)
         l_min = np.where(cv_err == cv_min)[0][0]
+        lambda_min = model['lambda_seq'][l_min]
         if penalty == "L1":
             cv_model = rgs.l1(lambda_min, tau, robust, standardize=standardize, adjust=adjust)
         else:
@@ -433,8 +438,8 @@ class cv(ilamm):
                                standardize=standardize, adjust=adjust)
 
         return {'cv_beta': cv_model['beta'], 'cv_res': cv_model['res'], \
-                'lambda_min': model['lambda_seq'][l_min], 'lambda_seq': model['lambda_seq'], \
-                'min_cv_err': cv_min, 'cv_err': cv_err}
+                'lambda_min': lambda_min, 'lambda_seq': model['lambda_seq'], \
+                'min_cv_err': cv_min, 'cv_err': cv_err, 'robust': cv_model['robust']}
 
 
 
