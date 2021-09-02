@@ -20,7 +20,7 @@ class ilamm():
     '''
     
     opt = {'phi': 0.5, 'gamma': 1.25, 'max_iter': 1e3, \
-           'tol': 1e-5, 'irw_tol': 1e-4, 'nboot': 200}
+           'tol': 1e-5, 'irw_tol': 1e-4, 'nboot': 200}  
 
     def __init__(self, X, Y, intercept=True, options={}):
 
@@ -52,8 +52,8 @@ class ilamm():
         self.mX, self.sdX = np.mean(X, axis=0), np.std(X, axis=0)
         self.itcp = intercept
         if intercept:
-            self.X = np.concatenate([np.ones((self.n,1)), X], axis=1)
-            self.X1 = np.concatenate([np.ones((self.n,1)), (X - self.mX)/self.sdX], axis=1)
+            self.X = np._c[np.ones(self.n), X]
+            self.X1 = np._c[np.ones(self.n), (X - self.mX)/self.sdX]
         else:
             self.X, self.X1 = X, X/self.sdX
 
@@ -125,7 +125,8 @@ class ilamm():
             if a==None: a = 3
             return 1*(abs(x) <= a/2)
     
-    def l1(self, Lambda=np.array([]), tau=0.5, robust=None, beta0=np.array([]), res=np.array([]), \
+    def l1(self, Lambda=np.array([]), tau=0.5, robust=None, \
+           beta0=np.array([]), res=np.array([]), \
            standardize=True, adjust=True):
         '''
                 L1-Penalized (Huberized) Expectile Regression
@@ -431,6 +432,7 @@ class cv(ilamm):
         cv_min = min(cv_err)
         l_min = np.where(cv_err == cv_min)[0][0]
         lambda_min = model['lambda_seq'][l_min]
+        
         if penalty == "L1":
             cv_model = rgs.l1(lambda_min, tau, robust, standardize=standardize, adjust=adjust)
         else:
