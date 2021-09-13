@@ -35,7 +35,7 @@ class ilamm():
 
         options : a dictionary of internal statistical and optimization parameters.
         
-            phi : initial quadratic coefficient parameter in the ILAMM algorithm; default is 0.1.
+            phi : initial quadratic coefficient parameter in the ILAMM algorithm; default is 0.5.
         
             gamma : adaptive search parameter that is larger than 1; default is 1.25.
         
@@ -64,13 +64,13 @@ class ilamm():
             Soft-thresholding Operator
         '''
         tmp = abs(x) - c
-        return np.sign(x)*np.where(tmp<=0, 0, tmp)
+        return np.sign(x) * np.where(tmp<=0, 0, tmp)
     
     def mad(self, x):
         '''
             Median Absolute Deviation
         '''
-        return np.median(abs(x - np.median(x)))*1.4826
+        return np.median(abs(x - np.median(x))) * 1.4826
         
     def lambda_seq(self, nlambda=50, eps=0.01, standardize=True):
         '''
@@ -82,7 +82,7 @@ class ilamm():
         '''
         if standardize: X = self.X1
         else: X = self.X
-        lambda_max = np.max(np.abs(X.T.dot(self.Y - np.mean(self.Y))))/(self.n)
+        lambda_max = np.max(np.abs(X.T.dot(self.Y - np.mean(self.Y)))) / self.n
         return np.exp(np.linspace(np.log(eps*lambda_max), np.log(lambda_max), num=nlambda))
     
     def grad_weight(self, x, tau=0.5, c=None):
@@ -91,11 +91,11 @@ class ilamm():
         '''
         if c == None:
             return -2*np.where(x>=0, tau*x, (1-tau)*x)/len(x)
-        if c > 0:
+        elif c > 0:
             tmp1 = tau*c*(x>c) - (1-tau)*c*(x<-c)
             tmp2 = tau*x*(x>=0)*(x<=c) + (1-tau)*x*(x<0)*(x>=-c)   
             return -2*(tmp1 + tmp2)/len(x)
-        if c <= 0: 
+        else: 
             raise ValueError("robustification parameter should be strictly positive")
 
     
@@ -105,10 +105,10 @@ class ilamm():
         '''
         if c == None:
             return np.mean( abs(tau - (x<0))* x**2 )
-        if c > 0:
+        elif c > 0:
             out = (abs(x)<=c) * x**2 + (2*c*abs(x)-c**2)*(abs(x)>c)
             return np.mean( abs(tau - (x<0))*out )
-        if c <= 0: 
+        else:
             raise ValueError("robustification parameter should be strictly positive")
     
     def concave_weight(self, x, penalty="SCAD", a=None):
@@ -117,13 +117,13 @@ class ilamm():
             tmp = 1 - (abs(x)-1)/(a-1)
             tmp = np.where(tmp<=0, 0, tmp)
             return np.where(tmp>1, 1, tmp)
-        if penalty == "MCP":
+        elif penalty == "MCP":
             if a==None: a = 3
             tmp = 1 - abs(x)/a 
             return np.where(tmp<=0, 0, tmp)
-        if penalty == "CapppedL1":
+        elif penalty == "CapppedL1":
             if a==None: a = 3
-            return 1*(abs(x) <= a/2)
+            return abs(x) <= a/2
     
     def l1(self, Lambda=np.array([]), tau=0.5, robust=None, \
            beta0=np.array([]), res=np.array([]), \
@@ -439,10 +439,11 @@ class cv(ilamm):
             cv_model = rgs.irw(lambda_min, tau, robust, penalty=penalty, a=a, nstep=nstep, \
                                standardize=standardize, adjust=adjust)
 
-        return {'cv_beta': cv_model['beta'], 'cv_res': cv_model['res'], \
-                'lambda_min': lambda_min, 'lambda_seq': model['lambda_seq'], \
-                'min_cv_err': cv_min, 'cv_err': cv_err, 'robust': cv_model['robust']}
-
-
-
+        return {'cv_beta': cv_model['beta'], 
+                'cv_res': cv_model['res'], \
+                'lambda_min': lambda_min, \
+                'lambda_seq': model['lambda_seq'], \
+                'min_cv_err': cv_min, \
+                'cv_err': cv_err, \
+                'robust': cv_model['robust']}
 
