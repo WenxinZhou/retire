@@ -52,8 +52,8 @@ class ilamm():
         self.mX, self.sdX = np.mean(X, axis=0), np.std(X, axis=0)
         self.itcp = intercept
         if intercept:
-            self.X = np._c[np.ones(self.n), X]
-            self.X1 = np._c[np.ones(self.n), (X - self.mX)/self.sdX]
+            self.X = np.c_[np.ones(self.n), X]
+            self.X1 = np.c_[np.ones(self.n), (X - self.mX)/self.sdX]
         else:
             self.X, self.X1 = X, X/self.sdX
 
