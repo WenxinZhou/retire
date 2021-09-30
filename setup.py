@@ -9,8 +9,8 @@ setup(
     version="1.0",
 
     #find all packages using the following command.
-    packages=["retire"],
-    name='retire',
+    packages=["expectile_reg"],
+    name='expectile_reg',
     scripts=[],
     
     package_data={
@@ -22,7 +22,7 @@ setup(
 
     author="Wenxin Zhou",
     author_email="wez243@ucsd.edu",
-    description="Robustified Expectile Regression",
+    description="Robust Expectile Regression",
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords="retire",
