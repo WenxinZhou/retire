@@ -332,15 +332,18 @@ class low_dim():
 
 
     def adaptive_fit(self, dev_prob=None):
+        '''
+            Data-Adaptive Huber Regression
+        '''
         if dev_prob == None: 
             dev_prob = 1 / self.n
 
         beta_hat = self.ols()
-        z, err =  len(self.mX) + np.log(1 / dev_prob), 1
+        rel, err = (len(self.mX) + np.log(1 / dev_prob)) / self.n, 1
     
         while err > self.opt['tol']:
             res = self.Y - self.X.dot(beta_hat)
-            f = lambda t : np.mean(np.minimum((res / t) ** 2, 1)) - z / self.n   
+            f = lambda t : np.mean(np.minimum((res / t) ** 2, 1)) - rel
             robust = self.find_root(f, np.min(abs(res)), np.sum(res ** 2))
             model = self.fit(tau=0.5, robust=robust, scale_invariant=False)
             err = np.sum((model['beta'] - beta_hat) ** 2) / np.sum(beta_hat ** 2)
