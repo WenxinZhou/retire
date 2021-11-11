@@ -517,7 +517,7 @@ class high_dim(low_dim):
 
         'robust' : output robustification parameter.
         '''
-        if not np.array(Lambda).any(): Lambda = max(tau, 1-tau)*np.median(self.lambda_seq)
+        if not np.array(Lambda).any(): Lambda = max(tau, 1-tau)*np.median(self.lambda_seq())
 
         if standardize: X = self.X1
         else: X = self.X
@@ -609,7 +609,7 @@ class high_dim(low_dim):
         'robust' : output robustification parameter.
         '''
         
-        if not np.array(Lambda).any(): Lambda = 2*max(tau, 1-tau)*np.median(self.lambda_seq)
+        if not np.array(Lambda).any(): Lambda = 2*max(tau, 1-tau)*np.median(self.lambda_seq())
 
         if len(beta0)==0:
             model = self.l1(Lambda, tau, robust, scale_invariant, standardize=standardize, adjust=False)
