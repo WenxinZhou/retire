@@ -772,7 +772,7 @@ class high_dim(low_dim):
 
         max_size : an upper bound on the selected model size; default is FALSE (no size restriction).
         
-        C : a positive constant in the BIC-like criterion; default is 1. Larger values of C gives sparser models.
+        C : a positive constant in the BIC-like criterion; default is 1. Larger values of C lead to sparser models.
 
         Returns
         -------
