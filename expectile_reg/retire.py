@@ -57,7 +57,7 @@ class low_dim():
         return np.linalg.solve(self.X.T.dot(self.X), self.X.T.dot(self.Y))
 
 
-    def boot_weight(self, weight):
+    def _boot_weight(self, weight):
         w1 = lambda n : rgt.multinomial(n, pvals=np.ones(n)/n)
         w2 = lambda n : rgt.exponential(size=n)
         w3 = lambda n : 2*rgt.binomial(1, 1/2, n)
@@ -71,7 +71,7 @@ class low_dim():
         return boot_dict[weight](self.n)
 
 
-    def retire_weight(self, x, tau, c, w=np.array([])):
+    def _retire_weight(self, x, tau, c, w=np.array([])):
         if c == None:
             tmp = np.where(x > 0, tau * x, (1 - tau) * x)
         else:
@@ -80,16 +80,7 @@ class low_dim():
         if not w.any():
             return - tmp / len(x)
         else:
-            return - tmp * w / len(x)
-
-
-    def retire_grad(self, x, tau, c):
-        if c == None:
-            return np.where(x > 0, tau * x, (1 - tau) * x)
-        else:
-            tmp1 = tau * c * (x > c) - (1 - tau) * c * (x < -c)
-            tmp2 = tau * x * (x >= 0) * (x <= c) + (1 - tau) * x * (x < 0) * (x >= -c)  
-            return tmp1 + tmp2
+            return - tmp * w / len(x) 
 
 
     def fit(self, tau=0.5, robust=None, scale_invariant=True, \
@@ -103,11 +94,11 @@ class low_dim():
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = 0, the function computes expectile regression estimator;
+                 If robust = None, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the MAD of residuals at each iteration.
+                          parameter will be estimated by "robust * MAD of residuals" at each iteration.
                         
         beta0 : initial estimate; default is np.array([]).
         
@@ -121,7 +112,7 @@ class low_dim():
 
         Returns
         -------
-        'beta' : regression estimate.
+        'beta' : estimated vector of regression coefficients.
 
         'res' : n by 1 numpy array of fitted residuals.
 
@@ -141,7 +132,7 @@ class low_dim():
         if robust != None and scale_invariant:
             c = robust * self.mad(res)
         
-        grad0 = X.T.dot(self.retire_weight(res, tau, c, weight))
+        grad0 = X.T.dot(self._retire_weight(res, tau, c, weight))
         diff_beta = -grad0
         beta1 = beta0 + diff_beta
         res, count = self.Y - X.dot(beta1), 0
@@ -149,13 +140,16 @@ class low_dim():
         while np.max(np.abs(grad0)) > self.opt['tol'] and count < self.opt['max_iter']:
             if robust != None and scale_invariant:
                 c = robust * self.mad(res)
-            grad1 = X.T.dot(self.retire_weight(res, tau, c, weight))
+            grad1 = X.T.dot(self._retire_weight(res, tau, c, weight))
             diff_grad = grad1 - grad0
             r0, r1 = diff_beta.dot(diff_beta), diff_grad.dot(diff_grad)
-            r01 = diff_grad.dot(diff_beta)
-            lr1, lr2 = r01 / r1, r0 / r01
+            if r1 == 0: lr = 1
+            else:
+                r01 = diff_grad.dot(diff_beta)
+                lr1, lr2 = r01/r1, r0/r01
+                lr = min(lr1, lr2, self.opt['max_lr'])
             grad0, beta0 = grad1, beta1
-            diff_beta = - min(lr1, lr2, self.opt['max_lr']) * grad1
+            diff_beta = - lr * grad1
             beta1 += diff_beta
             res = self.Y - X.dot(beta1)
             count += 1
@@ -178,7 +172,7 @@ class low_dim():
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = 0, the function computes expectile regression estimator;
+                 If robust = None, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
@@ -188,7 +182,7 @@ class low_dim():
 
         Returns
         -------
-        'beta' : regression estimate.
+        'beta' : estimated vector of regression coefficients.
         
         'normal_ci' : numpy array. Normal CIs based on estimated asymptotic covariance matrix.
         '''
@@ -230,7 +224,7 @@ class low_dim():
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = 0, the function computes expectile regression estimator;
+                 If robust = None, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
@@ -242,10 +236,13 @@ class low_dim():
 
         Returns
         -------
-        mb_beta : numpy array. 1st column: regression estimate; 2nd to last: bootstrap estimates.
+        mb_beta : numpy array. 
+            1st column: regression estimate; 
+            2nd to last: bootstrap estimates.
         '''
         if weight not in self.weights:
-            raise ValueError("weight distribution must be either Exponential, Rademacher, Multinomial, Gaussian, Uniform or Folded-normal")
+            raise ValueError("weight distribution must be either Exponential, Rademacher, \
+                              Multinomial, Gaussian, Uniform or Folded-normal")
            
         model = self.fit(tau, robust, scale_invariant, standardize=standardize, adjust=False)
         robust = model['robust_para']
@@ -255,7 +252,7 @@ class low_dim():
 
         for b in range(self.opt['nboot']):
             model = self.fit(tau, robust, scale_invariant=False, beta0=mb_beta[:,0], res=res, \
-                             weight=self.boot_weight(weight), standardize=standardize)
+                             weight=self._boot_weight(weight), standardize=standardize)
             mb_beta[:,b + 1] = model['beta']
 
         if standardize:
@@ -277,7 +274,7 @@ class low_dim():
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = 0, the function computes expectile regression estimator;
+                 If robust = None, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
@@ -320,8 +317,7 @@ class low_dim():
                 'pivotal_ci': pivotal_ci,
                 'normal_ci': normal_ci}
 
-
-    def find_root(self, f, tmin, tmax, tol=1e-5):
+    def _find_root(self, f, tmin, tmax, tol=1e-5):
         while tmax - tmin > tol:
             tau = (tmin + tmax) / 2
             if f(tau) > 0:
@@ -330,24 +326,24 @@ class low_dim():
                 tmax = tau
         return tau
 
-
     def adaptive_fit(self, dev_prob=None):
         '''
-            Data-Adaptive Huber Regression
+            Adaptive Huber Regression
         '''
-        if dev_prob == None: 
-            dev_prob = 1 / self.n
+        if dev_prob == None: dev_prob = 1 / self.n
 
         beta_hat = self.ols()
         rel, err = (len(self.mX) + np.log(1 / dev_prob)) / self.n, 1
-    
-        while err > self.opt['tol']:
+        
+        count = 0
+        while err > self.opt['tol'] and count < 50:
             res = self.Y - self.X.dot(beta_hat)
             f = lambda t : np.mean(np.minimum((res / t) ** 2, 1)) - rel
-            robust = self.find_root(f, np.min(abs(res)), np.sum(res ** 2))
+            robust = self._find_root(f, np.min(abs(res)), np.sum(res ** 2))
             model = self.fit(tau=0.5, robust=robust, scale_invariant=False)
             err = np.sum((model['beta'] - beta_hat) ** 2) / np.sum(beta_hat ** 2)
             beta_hat = model['beta']
+            count += 1
 
         return {'beta': beta_hat, 
                 'res': res, \
@@ -398,7 +394,7 @@ class high_dim(low_dim):
         
             max_iter : maximum numder of iterations in the ILAMM algorithm; default is 1e3.
         
-            tol : the ILAMM iteration stops when |beta^{k+1} - beta^k|^2/|beta^k|^2 <= tol; default is 1e-5.
+            tol : the ILAMM iteration stops when |beta^{k+1} - beta^k|_max <= tol; default is 1e-5.
 
             irw_tol : tolerance parameter for stopping iteratively reweighted L1-penalizations; default is 1e-4.
 
@@ -416,14 +412,11 @@ class high_dim(low_dim):
 
         self.opt.update(options)
 
-
-    def soft_thresh(self, x, c):
+    def _soft_thresh(self, x, c):
         '''
             Soft-thresholding Operator
         '''
-        tmp = abs(x) - c
-        return np.sign(x) * np.where(tmp<=0, 0, tmp)
-    
+        return np.sign(x) * np.maximum(abs(x) - c, 0)
         
     def lambda_seq(self, nlambda=50, eps=0.01, standardize=True):
         '''
@@ -438,8 +431,7 @@ class high_dim(low_dim):
         lambda_max = np.max(np.abs(X.T.dot(self.Y - np.mean(self.Y)))) / self.n
         return np.exp(np.linspace(np.log(eps*lambda_max), np.log(lambda_max), num=nlambda))
     
-
-    def grad_weight(self, x, tau=0.5, c=False):
+    def _grad_weight(self, x, tau=0.5, c=False):
         '''
             Gradient Weight
         '''
@@ -451,21 +443,19 @@ class high_dim(low_dim):
         else: 
             raise ValueError("robustification parameter should be strictly positive")
 
-    
     def retire_loss(self, x, tau=0.5, c=False):
         '''
-            Asymmetric Quadratic or Huber Loss 
+            Asymmetric L2 or Huber Loss 
         '''
         if not c:
             return np.mean( abs(tau - (x<0))* x**2 )
         elif c > 0:
             out = (abs(x)<=c) * x**2 + (2*c*abs(x)-c**2)*(abs(x)>c)
-            return np.mean(np.where(x<0, 1-tau, tau)*out)
+            return np.mean(np.where(x<0, 1-tau, tau) * out)
         else:
             raise ValueError("robustification parameter should be strictly positive")
     
-
-    def concave_weight(self, x, penalty="SCAD", a=None):
+    def _concave_weight(self, x, penalty="SCAD", a=None):
         if penalty == "SCAD":
             if a==None: a = 3.7
             tmp = 1 - (abs(x)-1)/(a-1)
@@ -478,27 +468,29 @@ class high_dim(low_dim):
         elif penalty == "CapppedL1":
             if a==None: a = 3
             return abs(x) <= a/2
-    
 
-    def l1(self, Lambda=np.array([]), tau=0.5, robust=False, scale_invariant=True,
+    def _asym(self, x, tau):
+        return 2 * np.where(x < 0, (1-tau) * x, tau * x)
+
+    def l1(self, tau=0.5, Lambda=np.array([]), robust=False, scale_invariant=True,
            beta0=np.array([]), res=np.array([]), standardize=True, adjust=True):
         '''
             L1-Penalized Robust/Huberized Expectile Regression
 
         Arguments
         ---------
+        tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
+
         Lambda : regularization parameter. This should be either a scalar, or 
                  a vector of length equal to the column dimension of X. If unspecified, 
                  it will be computed by self.lambda_seq().
-
-        tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
                  If robust = False, the function computes penalized expectile regression estimator;
                  if robust > 0, the function computes penalized Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the MAD of residuals at each iteration.
+                          parameter will be estimated by the standard deviation of residuals at each iteration.
 
         standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
         
@@ -529,16 +521,16 @@ class high_dim(low_dim):
             res = self.Y - beta0[0]
 
         trun = robust
-        phi, dev, count = self.opt['phi'], 1, 0
-        while dev > self.opt['tol']*np.sum(beta0**2) and count < self.opt['max_iter']:
+        phi, dev, count = self.opt['phi'], 100, 0
+        while dev > self.opt['tol'] and count < self.opt['max_iter']:
             
             if robust > 0 and scale_invariant:
-                trun = robust * self.mad(res)
+                trun = robust * np.std(self._asym(res, tau))
             
-            grad0 = X.T.dot(self.grad_weight(res, tau, trun))
+            grad0 = X.T.dot(self._grad_weight(res, tau, trun))
             loss_eval0 = self.retire_loss(res, tau, trun)
             beta1 = beta0 - grad0/phi
-            beta1[self.itcp:] = self.soft_thresh(beta1[self.itcp:], Lambda/phi)
+            beta1[self.itcp:] = self._soft_thresh(beta1[self.itcp:], Lambda/phi)
             diff_beta = beta1 - beta0
             dev = diff_beta.dot(diff_beta)
             
@@ -549,7 +541,7 @@ class high_dim(low_dim):
             while loss_proxy < loss_eval1:
                 phi *= self.opt['gamma']
                 beta1 = beta0 - grad0/phi
-                beta1[self.itcp:] = self.soft_thresh(beta1[self.itcp:], Lambda/phi)
+                beta1[self.itcp:] = self._soft_thresh(beta1[self.itcp:], Lambda/phi)
                 diff_beta = beta1 - beta0
                 dev = diff_beta.dot(diff_beta)
                 res = self.Y - X.dot(beta1)
@@ -566,32 +558,31 @@ class high_dim(low_dim):
         return {'beta': beta1, 'res': res, 'intercept': self.itcp, \
                 'niter': count, 'lambda': Lambda, 'robust': trun}
 
-
-    def irw(self, Lambda=np.array([]), tau=0.5, robust=False, scale_invariant=True, \
-            beta0=np.array([]), res=np.array([]), penalty="SCAD", a=3.7, nstep=5, \
+    def irw(self, tau=0.5, Lambda=np.array([]), robust=False, scale_invariant=True, \
+            beta0=np.array([]), res=np.array([]), penalty="SCAD", a=3.7, nstep=3, \
             standardize=True, adjust=True):
         '''
             Iteratively Reweighted L1-Penalized (Huberized) Expectile Regression
             
         Arguments
         ---------
+        tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
+
         Lambda : regularization parameter. If unspecified, 
                  it will be computed by self.lambda_seq().
-        
-        tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
                  If robust = False, the function computes penalized expectile regression estimator;
                  if robust > 0, the function computes penalized Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the MAD of residuals at each iteration.
+                          parameter will be estimated by the standard deviation of residuals at each iteration.
     
         penalty : a character string representing one of the built-in concave penalties; default is "SCAD".
         
         a : the constant (>2) in the concave penality; default is 3.7.
         
-        nstep : number of iterations/steps of the IRW algorithm; default is 5.
+        nstep : number of iterations/steps of the IRW algorithm; default is 3.
 
         standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
         
@@ -610,19 +601,28 @@ class high_dim(low_dim):
         'robust' : output robustification parameter.
         '''
         
-        if not np.array(Lambda).any(): Lambda = 2*max(tau, 1-tau)*np.median(self.lambda_seq())
+        if not np.array(Lambda).any(): 
+            Lambda = 2*max(tau, 1-tau)*np.median(self.lambda_seq())
 
         if len(beta0)==0:
-            model = self.l1(Lambda, tau, robust, scale_invariant, standardize=standardize, adjust=False)
+            model = self.l1(tau, Lambda, robust, scale_invariant, \
+                            standardize=standardize, adjust=False)
         else:
-            model = self.l1(Lambda, tau, robust, scale_invariant, beta0, res, standardize, adjust=False)
+            model = self.l1(tau, Lambda, robust, scale_invariant, beta0, res, \
+                            standardize, adjust=False)
         beta0, res = model['beta'], model['res']
 
-        rel_dev, step = 1, 1
-        while rel_dev > self.opt['irw_tol'] and step <= nstep:
-            rw_lambda = Lambda * self.concave_weight(beta0[self.itcp:]/Lambda, penalty, a)
-            model = self.l1(rw_lambda, tau, robust, scale_invariant, model['beta'], model['res'], standardize, adjust=False)
-            rel_dev = np.sum((model['beta'] - beta0)**2)/np.sum(beta0**2)
+        lam = Lambda * np.ones(self.X.shape[1] - self.itcp)
+        pos_lam = lam > 0
+        rw_lam = np.zeros(self.X.shape[1] - self.itcp)
+
+        max_dev, step = 1, 1
+        while max_dev > self.opt['irw_tol'] and step <= nstep:
+            rw_lam[pos_lam] = lam[pos_lam] * \
+                              self._concave_weight(beta0[self.itcp:][pos_lam]/lam[pos_lam], penalty, a)
+            model = self.l1(tau, rw_lam, robust, scale_invariant, \
+                            model['beta'], model['res'], standardize, adjust=False)
+            max_dev = np.max(abs(model['beta'] - beta0))
             beta0, res = model['beta'], model['res']
             step += 1
         
@@ -633,24 +633,23 @@ class high_dim(low_dim):
         return {'beta': beta0, 'res': res, 'intercept': self.itcp, \
                 'lambda': Lambda, 'robust': model['robust']}
 
-
-    def l1_path(self, lambda_seq, tau=0.5, robust=False, scale_invariant=True, \
-                standardize=True, adjust=True):
+    def l1_path(self, tau=0.5, lambda_seq=np.array([]), robust=False, \
+                scale_invariant=True, standardize=True, adjust=True):
         '''
             Solution Path of L1-Penalized (Huberized) Expectile Regression
 
         Arguments
         ---------
+        tau : location parameter between 0 and 1; default is 0.5.
+
         lambda_seq : a numpy array of lambda values.
 
-        tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
-        
         robust : robustification/tuning parameter in the Huber loss.
                  If robust = False, the function computes penalized expectile regression estimator;
                  if robust > 0, the function computes penalized Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the MAD of residuals at each iteration.
+                          parameter will be estimated by the standard deviation of residuals at each iteration.
         
         standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
         
@@ -658,7 +657,8 @@ class high_dim(low_dim):
 
         Returns
         -------
-        'beta_seq' : a sequence of l1-retire estimates. Each column corresponds to an estiamte for a lambda value.
+        'beta_seq' : a sequence of l1-retire estimates. 
+                     Each column corresponds to an estiamte for a lambda value.
 
         'res_seq' : a sequence of fitted residual vectors.
 
@@ -666,18 +666,24 @@ class high_dim(low_dim):
 
         'lambda_seq' : a sequence of lambda values in ascending order.
         '''
+        if type(lambda_seq) == float or type(lambda_seq) == int:
+            raise ValueError("lambda_seq should be a numpy array; otherwise, try l1()")
+        if not lambda_seq.any():
+            lambda_seq = self.lambda_seq(standardize=standardize)
         lambda_seq, nlambda = np.sort(lambda_seq), len(lambda_seq)
         beta_seq = np.zeros(shape=(self.X.shape[1], nlambda))
         res_seq = np.zeros(shape=(self.n, nlambda))
         robust_seq = np.zeros(nlambda)
         
-        model = self.l1(lambda_seq[0], tau, robust, scale_invariant, standardize=standardize, adjust=False)
+        model = self.l1(tau, lambda_seq[0], robust, scale_invariant, \
+                        standardize=standardize, adjust=False)
         beta_seq[:,0], res_seq[:,0] = model['beta'], model['res']
         robust_seq[0] = model['robust']
         
         for l in range(1, nlambda):
-            model = self.l1(lambda_seq[l], tau, robust, scale_invariant, \
-                            beta_seq[:,l-1], res_seq[:,l-1], standardize, adjust=False)
+            model = self.l1(tau, lambda_seq[l], robust, scale_invariant, \
+                            beta_seq[:,l-1], res_seq[:,l-1], \
+                            standardize, adjust=False)
             beta_seq[:,l], res_seq[:,l] = model['beta'], model['res']
             robust_seq[l] = model['robust']
 
@@ -692,30 +698,29 @@ class high_dim(low_dim):
                 'lambda_seq': lambda_seq, \
                 'robust_seq': robust_seq}
 
-
-    def irw_path(self, lambda_seq, tau=0.5, robust=False, scale_invariant=True, \
-                 penalty="SCAD", a=3.7, nstep=5, standardize=True, adjust=True):
+    def irw_path(self, tau=0.5, lambda_seq=np.array([]), robust=False, scale_invariant=True,\
+                 penalty="SCAD", a=3.7, nstep=3, standardize=True, adjust=True):
         '''
             Solution Path of IRW-L1-Penalized (Huberized) Expectile Regression
 
         Arguments
         ---------
-        lambda_seq : a numpy array of lambda values.
-
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
+
+        lambda_seq : a numpy array of lambda values.
         
         robust : robustification/tuning parameter in the Huber loss.
                  If robust = False, the function computes penalized expectile regression estimator;
                  if robust > 0, the function computes penalized Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the MAD of residuals at each iteration.
+                          parameter will be estimated by the standard deviation of residuals at each iteration.
                 
         penalty : a character string representing one of the built-in concave penalties; default is "SCAD".
         
         a : the constant (>2) in the concave penality; default is 3.7.
         
-        nstep : number of iterations/steps of the IRW algorithm; default is 5.
+        nstep : number of iterations/steps of the IRW algorithm; default is 3.
         
         standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
         
@@ -731,18 +736,23 @@ class high_dim(low_dim):
 
         'lambda_seq' : a sequence of lambda values in ascending order.
         '''
+        if type(lambda_seq) == float or type(lambda_seq) == int:
+            raise ValueError("lambda_seq should be a numpy array; otherwise, try irw()")
+        if not lambda_seq.any():
+            lambda_seq = self.lambda_seq(standardize=standardize)
         lambda_seq, nlambda = np.sort(lambda_seq), len(lambda_seq)
         beta_seq = np.empty(shape=(self.X.shape[1], nlambda))
         res_seq = np.empty(shape=(self.n, nlambda))
         robust_seq = np.zeros(nlambda)
 
-        model = self.irw(lambda_seq[0], tau, robust, scale_invariant, \
-                         penalty=penalty, a=a, nstep=nstep, standardize=standardize, adjust=False)
+        model = self.irw(tau, lambda_seq[0], robust, scale_invariant, \
+                         penalty=penalty, a=a, nstep=nstep, \
+                         standardize=standardize, adjust=False)
         beta_seq[:,0], res_seq[:,0] = model['beta'], model['res']
         robust_seq[0] = model['robust']
 
         for l in range(1, nlambda):
-            model = self.irw(lambda_seq[l], tau, robust, scale_invariant, \
+            model = self.irw(tau, lambda_seq[l], robust, scale_invariant, \
                              beta_seq[:,l-1], res_seq[:,l-1], \
                              penalty, a, nstep, standardize, adjust=False)
             beta_seq[:,l], res_seq[:,l] = model['beta'], model['res']
@@ -759,10 +769,10 @@ class high_dim(low_dim):
                 'lambda_seq': lambda_seq, \
                 'robust_seq': robust_seq}
 
-
-
-    def bic(self, tau=0.5, lambda_seq=np.array([]), nlambda=100, robust=False, scale_invariant=True, \
-            max_size=False, C=1, penalty="SCAD", a=3.7, nstep=5, standardize=True, adjust=True):
+    def bic(self, tau=0.5, lambda_seq=np.array([]), nlambda=100, \
+            robust=False, scale_invariant=True, \
+            max_size=False, C=1, penalty="SCAD", a=3.7, nstep=3, \
+            standardize=True, adjust=True):
         '''
             Model Selection via Bayesian Information Criterion
         
@@ -770,9 +780,11 @@ class high_dim(low_dim):
         ---------
         see l1_path() and irw_path() 
 
-        max_size : an upper bound on the selected model size; default is FALSE (no size restriction).
+        max_size : an upper bound on the selected model size; 
+                   default is FALSE (no size restriction).
         
-        C : a positive constant in the BIC-like criterion; default is 1. Larger values of C lead to sparser models.
+        C : a positive constant in the BIC-like criterion; default is 1. 
+            Larger values of C lead to sparser models.
 
         Returns
         -------
@@ -796,12 +808,15 @@ class high_dim(low_dim):
         if penalty not in self.penalties: 
             raise ValueError("penalty must be either L1, SCAD or MCP")
         elif penalty == "L1":
-            model_all = self.l1_path(lambda_seq, tau, robust, scale_invariant, standardize, adjust)
+            model_all = self.l1_path(tau, lambda_seq, robust, scale_invariant, \
+                                     standardize, adjust)
         else:
-            model_all = self.irw_path(lambda_seq, tau, robust, scale_invariant, penalty, a, nstep, standardize, adjust)
+            model_all = self.irw_path(tau, lambda_seq, robust, scale_invariant, \
+                                      penalty, a, nstep, standardize, adjust)
 
         robust_seq = model_all['robust_seq']
-        BIC = np.array([self.retire_loss(model_all['res_seq'][:,l], tau, robust_seq[l]) for l in range(nlambda)])
+        BIC = np.array([self.retire_loss(model_all['res_seq'][:,l], tau, robust_seq[l]) \
+                        for l in range(nlambda)])
         BIC = np.log(BIC) + 2 * C * model_all['size_seq'] * np.log(self.p) / self.n
         if not max_size:
             bic_select = BIC==min(BIC)
@@ -844,8 +859,10 @@ class cv(high_dim):
             folds.append(idx[v::nfolds])
         return idx, folds
 
-    def fit(self, lambda_seq=np.array([]), nlambda=50, tau=0.5, robust=False, scale_invariant=True, \
-            nfolds=5, penalty="SCAD", a=3.7, nstep=5, standardize=True, adjust=True):
+    def fit(self, tau=0.5, lambda_seq=np.array([]), nlambda=50, \
+            robust=False, scale_invariant=True, \
+            nfolds=5, penalty="SCAD", a=3.7, nstep=3, \
+            standardize=True, adjust=True):
 
         rgs = high_dim(self.X, self.Y, self.itcp, self.opt)
 
@@ -854,23 +871,28 @@ class cv(high_dim):
         else:
             nlambda = len(lambda_seq)
 
-        if penalty not in self.penalties: raise ValueError("penalty must be either L1, SCAD or MCP")
+        if penalty not in self.penalties: 
+            raise ValueError("penalty must be either L1, SCAD or MCP")
 
         idx, folds = self.divide_sample(nfolds)
         val_err = np.zeros((nfolds, nlambda))
 
         for v in range(nfolds):
-            X_train, Y_train = self.X[np.setdiff1d(idx,folds[v]),:], self.Y[np.setdiff1d(idx,folds[v])]
+            X_train = self.X[np.setdiff1d(idx,folds[v]),:]
+            Y_train = self.Y[np.setdiff1d(idx,folds[v])]
             X_val, Y_val = self.X[folds[v],:], self.Y[folds[v]]
             train = high_dim(X_train, Y_train, self.itcp, self.opt)
 
             if penalty == "L1":
-                model = train.l1_path(lambda_seq, tau, robust, scale_invariant, standardize, adjust)
+                model = train.l1_path(tau, lambda_seq, robust, scale_invariant, \
+                                      standardize, adjust)
             else:
-                model = train.irw_path(lambda_seq, tau, robust, scale_invariant, penalty, a, nstep, standardize, adjust)
+                model = train.irw_path(tau, lambda_seq, robust, scale_invariant, \
+                                       penalty, a, nstep, standardize, adjust)
                        
             val_err[v,:] = np.array([self.retire_loss(Y_val - model['beta_seq'][0,l]*self.itcp \
-                                     - X_val.dot(model['beta_seq'][self.itcp:,l]), tau) for l in range(nlambda)])
+                                     - X_val.dot(model['beta_seq'][self.itcp:,l]), tau) \
+                                     for l in range(nlambda)])
         
         cv_err = np.mean(val_err, axis=0)
         cv_min = min(cv_err)
@@ -878,9 +900,11 @@ class cv(high_dim):
         lambda_min = model['lambda_seq'][l_min]
         
         if penalty == "L1":
-            cv_model = rgs.l1(lambda_min, tau, robust, scale_invariant, standardize=standardize, adjust=adjust)
+            cv_model = rgs.l1(tau, lambda_min, robust, scale_invariant,\
+                              standardize=standardize, adjust=adjust)
         else:
-            cv_model = rgs.irw(lambda_min, tau, robust, scale_invariant, penalty=penalty, a=a, nstep=nstep, \
+            cv_model = rgs.irw(tau, lambda_min, robust, scale_invariant, \
+                               penalty=penalty, a=a, nstep=nstep, \
                                standardize=standardize, adjust=adjust)
 
         return {'cv_beta': cv_model['beta'], 
