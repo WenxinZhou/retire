@@ -10,7 +10,7 @@ class low_dim():
         via Gradient Descent with Barzilai-Borwein Step Size
     '''
     weights = ["Exponential", "Multinomial", "Rademacher", "Gaussian", "Uniform", "Folded-normal"]
-    opt = {'max_iter': 1e3, 'max_lr': 10, 'tol': 1e-4, 'nboot': 200}
+    opt = {'max_iter': 1e3, 'max_lr': 50, 'tol': 1e-4, 'nboot': 200}
 
     def __init__(self, X, Y, intercept=True, options=dict()):
         '''
@@ -41,7 +41,8 @@ class low_dim():
             self.X = np.c_[np.ones(self.n), X]
             self.X1 = np.c_[np.ones(self.n,), (X - self.mX)/self.sdX]
         else:
-            self.X, self.X1 = X, X/self.sdX
+            self.X = np.copy(X)
+            self.X1 = self.X/self.sdX
 
         self.opt.update(options)
 
@@ -56,6 +57,8 @@ class low_dim():
     def ols(self):
         return np.linalg.solve(self.X.T.dot(self.X), self.X.T.dot(self.Y))
 
+    def _asym(self, x, tau):
+        return 2 * np.where(x < 0, (1-tau) * x, tau * x)
 
     def _boot_weight(self, weight):
         w1 = lambda n : rgt.multinomial(n, pvals=np.ones(n)/n)
@@ -97,8 +100,9 @@ class low_dim():
                  If robust = None, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
-        scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by "robust * MAD of residuals" at each iteration.
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          "robust * MAD of residuals" at each iteration.
                         
         beta0 : initial estimate; default is np.array([]).
         
@@ -106,7 +110,8 @@ class low_dim():
         
         weight : n by 1 numpy array of observation weights; default is np.array([]).
         
-        standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
         
         adjust : logical flag for returning coefficients on the original scale.
 
@@ -124,22 +129,30 @@ class low_dim():
         if standardize: X = self.X1
         else: X = self.X
 
-        if not beta0.any():
+        if len(beta0) == 0:
             beta0 = np.zeros(X.shape[1])
-            res = self.Y
+            if self.itcp: beta0[0] = np.quantile(self.Y, tau)
+            res = self.Y - beta0[0]
+        elif len(beta0) == X.shape[1]:
+            res = self.Y - X.dot(beta0)
+        else:
+            raise ValueError("dimension of beta0 must match parameter dimension")
 
         c = robust
         if robust != None and scale_invariant:
-            c = robust * self.mad(res)
-        
+            c0 = robust * self.mad(self._asym(self.Y, tau))
+            c = max( robust * self.mad(self._asym(res, tau)) , 
+                     0.1 * c0 )
+
         grad0 = X.T.dot(self._retire_weight(res, tau, c, weight))
         diff_beta = -grad0
-        beta1 = beta0 + diff_beta
-        res, count = self.Y - X.dot(beta1), 0
+        beta = beta0 + diff_beta
+        res, count = self.Y - X.dot(beta), 0
  
-        while np.max(np.abs(grad0)) > self.opt['tol'] and count < self.opt['max_iter']:
+        while max(abs(diff_beta)) > self.opt['tol'] and count < self.opt['max_iter']:
             if robust != None and scale_invariant:
-                c = robust * self.mad(res)
+                c = max( robust * self.mad(self._asym(res, tau)) , 
+                         0.1 * c0 )
             grad1 = X.T.dot(self._retire_weight(res, tau, c, weight))
             diff_grad = grad1 - grad0
             r0, r1 = diff_beta.dot(diff_beta), diff_grad.dot(diff_grad)
@@ -147,18 +160,18 @@ class low_dim():
             else:
                 r01 = diff_grad.dot(diff_beta)
                 lr1, lr2 = r01/r1, r0/r01
-                lr = min(lr1, lr2, self.opt['max_lr'])
-            grad0, beta0 = grad1, beta1
+                lr = min(abs(lr1), abs(lr2), self.opt['max_lr'])
+            grad0 = grad1 
             diff_beta = - lr * grad1
-            beta1 += diff_beta
-            res = self.Y - X.dot(beta1)
+            beta += diff_beta
+            res = self.Y - X.dot(beta)
             count += 1
 
         if standardize and adjust:
-            beta1[self.itcp:] = beta1[self.itcp:] / self.sdX
-            if self.itcp: beta1[0] -= self.mX.dot(beta1[1:])
+            beta[self.itcp:] = beta[self.itcp:] / self.sdX
+            if self.itcp: beta[0] -= self.mX.dot(beta[1:])
 
-        return {'beta': beta1, 'res': res, \
+        return {'beta': beta, 'res': res, \
                 'robust_para': c, 'niter': count}
 
 
@@ -227,12 +240,15 @@ class low_dim():
                  If robust = None, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
-        scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the MAD of residuals at each iteration.
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          the MAD of residuals at each iteration.
 
-        weight : a character string representing one of the built-in bootstrap weight distributions; default is "Exponential".
+        weight : a character string representing one of the built-in bootstrap weight distributions; 
+                 default is "Exponential".
 
-        standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
 
         Returns
         -------
@@ -280,15 +296,19 @@ class low_dim():
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
                           parameter will be estimated by the MAD of residuals at each iteration.
 
-        weight : a character string representing one of the built-in bootstrap weight distributions; default is "Exponential".
+        weight : a character string representing the random weight distribution;
+                 default is "Exponential".
 
-        standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
 
         alpha : miscoverage level for each CI; default is 0.05.
 
         Returns
         -------
-        'boot_beta' : numpy array. 1st column: regression estimate; 2nd to last: bootstrap estimates.
+        'boot_beta' : numpy array. 
+                      1st column: regression estimate; 
+                      2nd to last: bootstrap estimates.
         
         'percentile_ci' : numpy array. Percentile bootstrap CI.
 
@@ -326,7 +346,7 @@ class low_dim():
                 tmax = tau
         return tau
 
-    def adaptive_fit(self, dev_prob=None):
+    def adaptive_fit(self, dev_prob=None, max_iter=50):
         '''
             Adaptive Huber Regression
         '''
@@ -336,7 +356,7 @@ class low_dim():
         rel, err = (len(self.mX) + np.log(1 / dev_prob)) / self.n, 1
         
         count = 0
-        while err > self.opt['tol'] and count < 50:
+        while err > self.opt['tol'] and count < max_iter:
             res = self.Y - self.X.dot(beta_hat)
             f = lambda t : np.mean(np.minimum((res / t) ** 2, 1)) - rel
             robust = self._find_root(f, np.min(abs(res)), np.sum(res ** 2))
@@ -362,7 +382,8 @@ class high_dim(low_dim):
     by Hui Zou and Runze Li
     The Annals of Statistics 36(4): 1509–1533.
 
-    I-LAMM for Sparse Learning: Simultaneous Control of Algorithmic Complexity and Statistical Error (2018)
+    I-LAMM for Sparse Learning: Simultaneous Control of 
+    Algorithmic Complexity and Statistical Error (2018)
     by Jianqing Fan, Han Liu, Qiang Sun and Tong Zhang
     The Annals of Statistics 46(2): 814-841.
 
@@ -396,7 +417,8 @@ class high_dim(low_dim):
         
             tol : the ILAMM iteration stops when |beta^{k+1} - beta^k|_max <= tol; default is 1e-5.
 
-            irw_tol : tolerance parameter for stopping iteratively reweighted L1-penalizations; default is 1e-4.
+            irw_tol : tolerance parameter for stopping iteratively reweighted L1-penalizations; 
+                      default is 1e-4.
 
             nboot : number of bootstrap samples for post-selection inference; default is 200.
         '''
@@ -469,8 +491,6 @@ class high_dim(low_dim):
             if a==None: a = 3
             return abs(x) <= a/2
 
-    def _asym(self, x, tau):
-        return 2 * np.where(x < 0, (1-tau) * x, tau * x)
 
     def l1(self, tau=0.5, Lambda=np.array([]), robust=False, scale_invariant=True,
            beta0=np.array([]), res=np.array([]), standardize=True, adjust=True):
@@ -486,13 +506,15 @@ class high_dim(low_dim):
                  it will be computed by self.lambda_seq().
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = False, the function computes penalized expectile regression estimator;
-                 if robust > 0, the function computes penalized Huberized expectile regression estimator.
+                 If robust = False, the function computes l1-penalized ER estimate;
+                 if robust > 0, the function computes l1-penalized robust ER estimate.
 
-        scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the standard deviation of residuals at each iteration.
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          the standard deviation of residuals at each iteration.
 
-        standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
         
         adjust : logical flag for returning coefficients on the original scale; default is TRUE.
 
@@ -510,7 +532,8 @@ class high_dim(low_dim):
 
         'robust' : output robustification parameter.
         '''
-        if not np.array(Lambda).any(): Lambda = max(tau, 1-tau)*np.median(self.lambda_seq())
+        if not np.array(Lambda).any(): 
+            Lambda = max(tau, 1-tau)*np.median(self.lambda_seq())
 
         if standardize: X = self.X1
         else: X = self.X
@@ -520,15 +543,17 @@ class high_dim(low_dim):
             if self.itcp: beta0[0] = np.quantile(self.Y, tau)
             res = self.Y - beta0[0]
 
-        trun = robust
+        c = robust
+        if robust: c0 = robust * np.std(self._asym(self.Y, tau))
         phi, dev, count = self.opt['phi'], 100, 0
         while dev > self.opt['tol'] and count < self.opt['max_iter']:
             
             if robust > 0 and scale_invariant:
-                trun = robust * np.std(self._asym(res, tau))
+                c = max( robust * np.std(self._asym(res, tau)), \
+                         0.1 * c0 )
             
-            grad0 = X.T.dot(self._grad_weight(res, tau, trun))
-            loss_eval0 = self.retire_loss(res, tau, trun)
+            grad0 = X.T.dot(self._grad_weight(res, tau, c))
+            loss_eval0 = self.retire_loss(res, tau, c)
             beta1 = beta0 - grad0/phi
             beta1[self.itcp:] = self._soft_thresh(beta1[self.itcp:], Lambda/phi)
             diff_beta = beta1 - beta0
@@ -536,7 +561,7 @@ class high_dim(low_dim):
             
             res = self.Y - X.dot(beta1)
             loss_proxy = loss_eval0 + diff_beta.dot(grad0) + 0.5*phi*dev
-            loss_eval1 = self.retire_loss(res, tau, trun)
+            loss_eval1 = self.retire_loss(res, tau, c)
             
             while loss_proxy < loss_eval1:
                 phi *= self.opt['gamma']
@@ -546,7 +571,7 @@ class high_dim(low_dim):
                 dev = diff_beta.dot(diff_beta)
                 res = self.Y - X.dot(beta1)
                 loss_proxy = loss_eval0 + diff_beta.dot(grad0) + 0.5*phi*dev
-                loss_eval1 = self.retire_loss(res, tau, trun)
+                loss_eval1 = self.retire_loss(res, tau, c)
             
             beta0, phi = beta1, (self.opt['phi'] + phi)/2
             count += 1
@@ -555,14 +580,17 @@ class high_dim(low_dim):
             beta1[self.itcp:] = beta1[self.itcp:]/self.sdX
             if self.itcp: beta1[0] -= self.mX.dot(beta1[1:])
 
-        return {'beta': beta1, 'res': res, 'intercept': self.itcp, \
-                'niter': count, 'lambda': Lambda, 'robust': trun}
+        return {'beta': beta1, 'res': res, 
+                'intercept': self.itcp, 
+                'niter': count, 
+                'lambda': Lambda, 
+                'robust': c}
 
     def irw(self, tau=0.5, Lambda=np.array([]), robust=False, scale_invariant=True, \
             beta0=np.array([]), res=np.array([]), penalty="SCAD", a=3.7, nstep=3, \
             standardize=True, adjust=True):
         '''
-            Iteratively Reweighted L1-Penalized (Huberized) Expectile Regression
+            Iteratively Reweighted L1-Penalized Robust Expectile Regression
             
         Arguments
         ---------
@@ -572,19 +600,22 @@ class high_dim(low_dim):
                  it will be computed by self.lambda_seq().
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = False, the function computes penalized expectile regression estimator;
-                 if robust > 0, the function computes penalized Huberized expectile regression estimator.
+                 If robust = False, the function computes irw-l1-penalized ER estimate;
+                 if robust > 0, the function computes irw-l1-penalized robust ER estimate.
 
-        scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the standard deviation of residuals at each iteration.
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          the standard deviation of residuals at each iteration.
     
-        penalty : a character string representing one of the built-in concave penalties; default is "SCAD".
+        penalty : a character string representing one of the built-in concave penalties; 
+                  default is "SCAD".
         
         a : the constant (>2) in the concave penality; default is 3.7.
         
         nstep : number of iterations/steps of the IRW algorithm; default is 3.
 
-        standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
         
         adjust : logical flag for returning coefficients on the original scale; default is TRUE.        
         
@@ -610,28 +641,31 @@ class high_dim(low_dim):
         else:
             model = self.l1(tau, Lambda, robust, scale_invariant, beta0, res, \
                             standardize, adjust=False)
-        beta0, res = model['beta'], model['res']
-
+        beta, res = model['beta'], model['res']
+        
         lam = Lambda * np.ones(self.X.shape[1] - self.itcp)
-        pos_lam = lam > 0
+        pos = lam > 0
         rw_lam = np.zeros(self.X.shape[1] - self.itcp)
 
         max_dev, step = 1, 1
         while max_dev > self.opt['irw_tol'] and step <= nstep:
-            rw_lam[pos_lam] = lam[pos_lam] * \
-                              self._concave_weight(beta0[self.itcp:][pos_lam]/lam[pos_lam], penalty, a)
+            rw_lam[pos] = lam[pos] * \
+                          self._concave_weight(beta[self.itcp:][pos]/lam[pos], penalty, a)
             model = self.l1(tau, rw_lam, robust, scale_invariant, \
                             model['beta'], model['res'], standardize, adjust=False)
-            max_dev = np.max(abs(model['beta'] - beta0))
-            beta0, res = model['beta'], model['res']
+            max_dev = max(abs(model['beta'] - beta))
+            beta, res = model['beta'], model['res']
             step += 1
         
         if standardize and adjust:
-            beta0[self.itcp:] = beta0[self.itcp:]/self.sdX
-            if self.itcp: beta0[0] -= self.mX.dot(beta0[1:])
+            beta[self.itcp:] = beta[self.itcp:]/self.sdX
+            if self.itcp: beta[0] -= self.mX.dot(beta[1:])
     
-        return {'beta': beta0, 'res': res, 'intercept': self.itcp, \
-                'lambda': Lambda, 'robust': model['robust']}
+        return {'beta': beta, 'res': res, 
+                'intercept': self.itcp,
+                'lambda': Lambda,
+                'robust': model['robust'],
+                'nstep': step}
 
     def l1_path(self, tau=0.5, lambda_seq=np.array([]), robust=False, \
                 scale_invariant=True, standardize=True, adjust=True):
@@ -645,13 +679,15 @@ class high_dim(low_dim):
         lambda_seq : a numpy array of lambda values.
 
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = False, the function computes penalized expectile regression estimator;
-                 if robust > 0, the function computes penalized Huberized expectile regression estimator.
+                 If robust = False, the function computes l1-penalized ER estimates;
+                 if robust > 0, the function computes l1-penalized robust ER estimates.
 
-        scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the standard deviation of residuals at each iteration.
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          the standard deviation of residuals at each iteration.
         
-        standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
         
         adjust : logical flag for returning coefficients on the original scale; default is TRUE.     
 
@@ -698,7 +734,8 @@ class high_dim(low_dim):
                 'lambda_seq': lambda_seq, \
                 'robust_seq': robust_seq}
 
-    def irw_path(self, tau=0.5, lambda_seq=np.array([]), robust=False, scale_invariant=True,\
+    def irw_path(self, tau=0.5, lambda_seq=np.array([]), \
+                 robust=False, scale_invariant=True, \
                  penalty="SCAD", a=3.7, nstep=3, standardize=True, adjust=True):
         '''
             Solution Path of IRW-L1-Penalized (Huberized) Expectile Regression
@@ -710,25 +747,29 @@ class high_dim(low_dim):
         lambda_seq : a numpy array of lambda values.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = False, the function computes penalized expectile regression estimator;
-                 if robust > 0, the function computes penalized Huberized expectile regression estimator.
+                 If robust = False, the function computes penalized ER estimates;
+                 if robust > 0, the function computes penalized robust ER estimates.
 
-        scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
-                          parameter will be estimated by the standard deviation of residuals at each iteration.
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          the standard deviation of residuals at each iteration.
                 
-        penalty : a character string representing one of the built-in concave penalties; default is "SCAD".
+        penalty : a character string representing one of the built-in concave penalties; 
+                  default is "SCAD".
         
         a : the constant (>2) in the concave penality; default is 3.7.
         
         nstep : number of iterations/steps of the IRW algorithm; default is 3.
         
-        standardize : logical flag for x variable standardization prior to fitting the model; default is TRUE.
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
         
         adjust : logical flag for returning coefficients on the original scale; default is TRUE.
 
         Returns
         -------
-        'beta_seq' : a sequence of irw-l1-retire estimates. Each column corresponds to an estiamte for a lambda value.
+        'beta_seq' : a sequence of irw-l1-retire estimates. 
+                     Each column corresponds to an estiamte for a lambda value.
 
         'res_seq' : a sequence of fitted residual vectors.
 
