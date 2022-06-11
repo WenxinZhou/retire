@@ -31,7 +31,7 @@ class low_dim():
             tol : the iteration will stop when max{|g_j|: j = 1, ..., p} <= tol 
                   where g_j is the j-th component of the (smoothed) gradient; default is 1e-4.
 
-            nboot : number of bootstrap samples for inference.
+            nboot : number of bootstrap samples for inference; default is 200.
         '''
         self.Y, self.n = Y.reshape(len(Y)), len(Y)
         if X.shape[1] >= self.n: raise ValueError("covariate dimension exceeds sample size")
@@ -78,12 +78,14 @@ class low_dim():
         if c == None:
             tmp = np.where(x > 0, tau * x, (1 - tau) * x)
         else:
-            tmp = tau * (x >= 0) * np.minimum(x, c) + (1 - tau) * (x < 0) * np.maximum(x, -c)
-            
+            pos = x > 0
+            tmp = np.minimum(abs(x), c)
+            tmp[pos] *= tau
+            tmp[~pos] *= tau - 1
         if not w.any():
-            return - tmp / len(x)
+            return - tmp 
         else:
-            return - tmp * w / len(x) 
+            return - tmp * w
 
 
     def fit(self, tau=0.5, robust=None, scale_invariant=True, \
@@ -144,16 +146,17 @@ class low_dim():
             c = max( robust * self.mad(self._asym(res, tau)) , 
                      0.1 * c0 )
 
-        grad0 = X.T.dot(self._retire_weight(res, tau, c, weight))
+        grad0 = X.T.dot(self._retire_weight(res, tau, c, weight)) / X.shape[0]
         diff_beta = -grad0
         beta = beta0 + diff_beta
-        res, count = self.Y - X.dot(beta), 0
- 
-        while max(abs(diff_beta)) > self.opt['tol'] and count < self.opt['max_iter']:
+        res, t = self.Y - X.dot(beta), 0
+        lr_seq = []
+
+        while max(abs(diff_beta)) > self.opt['tol'] and t < self.opt['max_iter']:
             if robust != None and scale_invariant:
                 c = max( robust * self.mad(self._asym(res, tau)) , 
                          0.1 * c0 )
-            grad1 = X.T.dot(self._retire_weight(res, tau, c, weight))
+            grad1 = X.T.dot(self._retire_weight(res, tau, c, weight)) / X.shape[0]
             diff_grad = grad1 - grad0
             r0, r1 = diff_beta.dot(diff_beta), diff_grad.dot(diff_grad)
             if r1 == 0: lr = 1
@@ -165,14 +168,15 @@ class low_dim():
             diff_beta = - lr * grad1
             beta += diff_beta
             res = self.Y - X.dot(beta)
-            count += 1
+            lr_seq.append(lr)
+            t += 1
 
         if standardize and adjust:
             beta[self.itcp:] = beta[self.itcp:] / self.sdX
             if self.itcp: beta[0] -= self.mX.dot(beta[1:])
 
-        return {'beta': beta, 'res': res, \
-                'robust_para': c, 'niter': count}
+        return {'beta': beta, 'res': res, 'robust_para': c, 
+                'niter': t, 'lr_seq': np.array(lr_seq)}
 
 
     def norm_ci(self, tau=0.5, robust=None, scale_invariant=True, \
@@ -460,7 +464,11 @@ class high_dim(low_dim):
         if not c:
             return -2 * np.where(x>=0, tau*x, (1-tau)*x) / len(x)
         elif c > 0:
-            tmp = tau * (x >= 0) * np.minimum(x, c) + (1 - tau) * (x < 0) * np.maximum(x, -c)
+            pos = x > 0
+            tmp = np.minimum(abs(x), c)
+            tmp[pos] *= tau
+            tmp[~pos] *= tau - 1
+            #tmp = tau * (x >= 0) * np.minimum(x, c) + (1 - tau) * (x < 0) * np.maximum(x, -c)
             return -2 * tmp / len(x)
         else: 
             raise ValueError("robustification parameter should be strictly positive")
@@ -493,7 +501,8 @@ class high_dim(low_dim):
 
 
     def l1(self, tau=0.5, Lambda=np.array([]), robust=False, scale_invariant=True,
-           beta0=np.array([]), res=np.array([]), standardize=True, adjust=True):
+           beta0=np.array([]), res=np.array([]),
+           standardize=True, adjust=True, iter_warning=False):
         '''
             L1-Penalized Robust/Huberized Expectile Regression
 
@@ -575,6 +584,9 @@ class high_dim(low_dim):
             
             beta0, phi = beta1, (self.opt['phi'] + phi)/2
             count += 1
+
+        if count == self.opt['max_iter'] and iter_warning:
+            print('maximum number of iterations reached')
 
         if standardize and adjust:
             beta1[self.itcp:] = beta1[self.itcp:]/self.sdX
@@ -703,8 +715,8 @@ class high_dim(low_dim):
         'lambda_seq' : a sequence of lambda values in ascending order.
         '''
         if type(lambda_seq) == float or type(lambda_seq) == int:
-            raise ValueError("lambda_seq should be a numpy array; otherwise, try l1()")
-        if not lambda_seq.any():
+            raise ValueError("lambda_seq should be an ndarray; otherwise, try l1()")
+        if len(lambda_seq) == 0:
             lambda_seq = self.lambda_seq(standardize=standardize)
         lambda_seq, nlambda = np.sort(lambda_seq), len(lambda_seq)
         beta_seq = np.zeros(shape=(self.X.shape[1], nlambda))
