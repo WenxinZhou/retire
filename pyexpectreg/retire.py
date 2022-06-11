@@ -586,9 +586,8 @@ class high_dim(low_dim):
             beta0, phi = beta1, (self.opt['phi'] + phi)/2
             count += 1
 
-        if count == self.opt['max_iter'] and iter_warning:
-            warnings.warn("Maximum number of iterations achieved \
-            when applying l1() with Lambda={} and tau={}".format(Lambda, tau))
+        if count == self.opt['max_iter'] and iter_warning: 
+            warnings.warn("Maximum number of iterations achieved when applying l1() with Lambda={} and tau={}".format(Lambda, tau))
 
         if standardize and adjust:
             beta1[self.itcp:] = beta1[self.itcp:]/self.sdX
