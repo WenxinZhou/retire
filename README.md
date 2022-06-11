@@ -1,4 +1,4 @@
-# retire (Robust Expectile Regression)
+# pyexpectreg (Robust Expectile and Quantile Regression)
 
 Estimation and inference methods for expectile (asymmetric least squares) regression and its robust/Huberized counterpart. The iterative local adaptive majorize-minimize (ILAMM) algorithm is employed for computing *L<sub>1</sub>*-penalized and iteratively reweighted *L<sub>1</sub>*-penalized (IRW-*L<sub>1</sub>*) (robust) expectile regression estimates. Special cases include penalized least squares and Huber regressions. The IRW method is motivated by the local linear approximation (LLA) algorithm proposed by [Zou & Li (2008)](https://doi.org/10.1214/009053607000000802) for folded concave penalized estimation, typified by the SCAD penalty ([Fan & Li, 2001](https://fan.princeton.edu/papers/01/penlike.pdf)) and the minimax concave penalty (MCP) ([Zhang, 2010](https://doi.org/10.1214/09-AOS729)).
 
@@ -17,7 +17,7 @@ python >=3, numpy, scipy
 import numpy as np
 import pandas as pd
 import numpy.random as rgt
-from expectile_reg.retire import high_dim
+from pyexpectreg.retire import high_dim
 from sklearn.linear_model import Lasso
 ```
 Generate data from a sparse linear model with high-dimensional covariates. The dimension of the feature/covariate space is `p`, and the sample size is `n`. The errors are generated from (i) the standard normal distribution, and (ii) the *t<sub>2</sub>*-distribution (*t*-distribution with 2 degrees of freedom). Compare `retire.high_dim.l1` with `sklearn.linear_model.Lasso` in terms of estimation error and runtime; the latter uses the coordinate descent (cd) solver.
