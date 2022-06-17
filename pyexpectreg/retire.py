@@ -78,21 +78,24 @@ class low_dim():
         return boot_dict[weight](self.n)
 
 
-    def _retire_weight(self, x, tau, c, w=np.array([])):
-        if c == None:
+    def _retire_weight(self, x, tau, c=False, w=np.array([])):
+        if not c:
             tmp = np.where(x > 0, tau * x, (1 - tau) * x)
-        else:
+        elif c>0:
             pos = x > 0
             tmp = np.minimum(abs(x), c)
             tmp[pos] *= tau
             tmp[~pos] *= tau - 1
+        else:
+            raise ValueError('robust parameter must be positive')
+
         if not w.any():
             return - tmp 
         else:
             return - tmp * w
 
 
-    def fit(self, tau=0.5, robust=None, scale_invariant=True, \
+    def fit(self, tau=0.5, robust=False, scale_invariant=True, \
             beta0=np.array([]), res=np.array([]), weight=np.array([]), \
             standardize=True, adjust=True):
         '''
@@ -103,7 +106,7 @@ class low_dim():
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = None, the function computes expectile regression estimator;
+                 If robust = False, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. 
@@ -145,7 +148,7 @@ class low_dim():
             raise ValueError("dimension of beta0 must match parameter dimension")
 
         c = robust
-        if robust != None and scale_invariant:
+        if robust > 0 and scale_invariant:
             c0 = robust * self.mad(self._asym(self.Y, tau))
             c = max( robust * self.mad(self._asym(res, tau)) , 
                      0.1 * c0 )
@@ -157,7 +160,7 @@ class low_dim():
         lr_seq = []
 
         while max(abs(diff_beta)) > self.opt['tol'] and t < self.opt['max_iter']:
-            if robust != None and scale_invariant:
+            if robust > 0 and scale_invariant:
                 c = max( robust * self.mad(self._asym(res, tau)) , 
                          0.1 * c0 )
             grad1 = X.T.dot(self._retire_weight(res, tau, c, weight)) / X.shape[0]
@@ -183,7 +186,7 @@ class low_dim():
                 'niter': t, 'lr_seq': np.array(lr_seq)}
 
 
-    def norm_ci(self, tau=0.5, robust=None, scale_invariant=True, \
+    def norm_ci(self, tau=0.5, robust=False, scale_invariant=True, \
                 alpha=0.05, standardize=True):
         '''
             Normal Calibrated Confidence Intervals
@@ -193,7 +196,7 @@ class low_dim():
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = None, the function computes expectile regression estimator;
+                 If robust = False, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
@@ -215,10 +218,10 @@ class low_dim():
         model = self.fit(tau, robust, scale_invariant, standardize=standardize)
         robust = model['robust_para']
 
-        if robust == None:
+        if not robust:
             retire_grad = lambda x : np.where(x > 0, tau * x, (1 - tau) * x)
             retire_hess = lambda x : np.where(x > 0, tau, 1 - tau)
-        else:
+        elif robust > 0:
             retire_grad = lambda x : np.where(x>0, tau, tau-1) * np.minimum(abs(x), robust)
             retire_hess = lambda x : tau * (x >= 0) * (x <= robust) \
                                      + (1 - tau) * (x < 0) * (x >= -robust)
@@ -239,7 +242,7 @@ class low_dim():
                 'acov': ACov}
 
 
-    def mb(self, tau=0.5, robust=None, scale_invariant=True, \
+    def mb(self, tau=0.5, robust=False, scale_invariant=True, \
            weight="Exponential", standardize=True):
         '''
             Multiplier Bootstrap Estimates
@@ -249,7 +252,7 @@ class low_dim():
         tau : location parameter between 0 and 1 for expectile regression; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = None, the function computes expectile regression estimator;
+                 If robust = False, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. 
@@ -293,7 +296,7 @@ class low_dim():
         return mb_beta
 
     
-    def mb_ci(self, tau=0.5, robust=None, scale_invariant=True, \
+    def mb_ci(self, tau=0.5, robust=False, scale_invariant=True, \
               weight="Exponential", standardize=True, alpha=0.05):
         '''
             Multiplier Bootstrap Confidence Intervals
@@ -303,7 +306,7 @@ class low_dim():
         tau : location parameter between 0 and 1; default is 0.5.
         
         robust : robustification/tuning parameter in the Huber loss.
-                 If robust = None, the function computes expectile regression estimator;
+                 If robust = False, the function computes expectile regression estimator;
                  if robust > 0, the function computes Huberized expectile regression estimator.
 
         scale_invariant : logical flag for making the estimate scale invariant. If True, the scale 
@@ -939,6 +942,162 @@ class high_dim(low_dim):
                 'robust_seq': robust_seq, \
                 'bic': BIC}
 
+
+    def sparse_proj(self, x, s):
+        return np.where(abs(x) < np.sort(abs(x))[-s], 0, x)
+
+
+    def sparse_supp(self, x, s):
+        y = abs(x)
+        return y >= np.sort(y)[-s]
+
+
+    def l0(self, tau=0.5, robust=False, scale_invariant=True,
+           sparsity=5, exp_size=5, beta0=np.array([]),
+           standardize=True, adjust=True,
+           tol=1e-5, max_iter=1e3):
+        '''
+            L0-Penalized (Robust) Expectile Regression 
+            via Two-Step Iterative Hard-Thresholding
+
+        Reference
+        ---------
+        On iterative hard thresholding methods for high-dimensional M-estimation (2014)
+        by Prateek Jain, Ambuj Tewari and Purushottam Kar
+        Advances in Neural Information Processing Systems 27
+
+        Arguments
+        ---------
+        tau : location parameter between 0 and 1 (float); default is 0.5.
+
+        robust : robustification/tuning parameter in the Huber loss.
+                 If robust = False, the function computes penalized ER estimates;
+                 if robust > 0, the function computes penalized robust ER estimates.
+
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          the standard deviation of residuals at each iteration.
+
+        sparsity : sparsity level (int, >=1); default is 5.
+
+        exp_size : expansion size (int, >=1); default is 5.
+
+        beta0 : initial estimate.
+
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
+
+        adjust : logical flag for returning coefficients on the original scale. 
+
+        tol : tolerance level in the IHT convergence criterion; default is 1e-5.
+
+        max_iter : maximum number of iterations; default is 1e3.
+
+        Returns
+        -------
+        'beta' : an ndarray of estimated coefficients.
+
+        'select' : indices of non-zero estimated coefficients (intercept excluded).
+
+        'robust_para' : robustification parameter.
+
+        'niter' : number of IHT iterations.
+        '''
+        X, Y = self.X, self.Y
+        itcp, c = self.itcp, robust
+        if len(beta0) == 0: beta0 = np.zeros(X.shape[1])
+        
+        t, dev = 0, 1
+        while t < max_iter and dev > tol:
+            res = Y - X.dot(beta0)
+            if robust > 0 and scale_invariant:
+                c = robust * self.mad(self._asym(res, tau))
+            grad0 = X.T.dot(self._grad_weight(res, tau, c))
+            supp0 = self.sparse_supp(grad0[itcp:], exp_size) + (beta0[itcp:] != 0)
+            beta1 = np.zeros(X.shape[1])
+            out0 = low_dim(X[:,itcp:][:,supp0], Y, intercept=itcp)\
+                   .fit(tau=tau, robust=c, scale_invariant=False, \
+                        standardize=standardize, adjust=adjust)
+            beta1[itcp:][supp0] = out0['beta'][itcp:]
+            if itcp: beta1[0] = out0['beta'][0]
+            beta1[itcp:] = self.sparse_proj(beta1[itcp:], sparsity)
+            supp1 = beta1[itcp:] != 0
+            out1 = low_dim(X[:,itcp:][:,supp1], Y, intercept=itcp)\
+                   .fit(tau=tau, robust=c, scale_invariant=False, \
+                        standardize=standardize, adjust=adjust)
+            beta1[itcp:][supp1] = out1['beta'][itcp:]
+            if itcp: beta1[0] = out1['beta'][0]
+            dev = max(abs(beta1 - beta0))
+            beta0 = np.copy(beta1)
+            t += 1
+
+        return {'beta': beta0, 
+                'select': np.where(beta0[itcp:] != 0)[0],
+                'robust_para': c,
+                'niter': t}
+
+
+    def l0_path(self, tau=0.5, robust=False, scale_invariant=True,
+                sparsity_seq=np.array([]), order='ascend',
+                sparsity_max=20, exp_size=5, 
+                standardize=True, adjust=True,
+                tol=1e-5, max_iter=1e3):
+        '''
+            Solution Path of L0-Penalized (Robust) Expectile Regression
+
+        Arguments
+        ---------
+        tau : location parameter between 0 and 1 (float); default is 0.5.
+
+        robust : robustification/tuning parameter in the Huber loss.
+                 If robust = False, the function computes penalized ER estimates;
+                 if robust > 0, the function computes penalized robust ER estimates.
+
+        scale_invariant : logical flag for making the estimate scale invariant. 
+                          If True, the scale parameter will be estimated by 
+                          the standard deviation of residuals at each iteration.
+
+        sparsity_seq : a predetermined sequence of sparsity levels.
+        
+        order : a character string indicating the order of sparsity levels along 
+                which the solution path is computed; default is 'ascend'.
+
+        sparsity_max : maximum sparsity level (int); default is 20.
+
+        exp_size : expansion size (int, >=1); default is 5.
+
+        standardize : logical flag for x variable standardization prior to fitting the model; 
+                      default is TRUE.
+
+        adjust : logical flag for returning coefficients on the original scale. 
+
+        tol : tolerance level in the IHT convergence criterion; default is 1e-5.
+
+        max_iter : maximum number of iterations; default is 1e3.
+        '''
+        if len(sparsity_seq) == 0:
+            sparsity_seq = np.array(range(1, sparsity_max+1))
+
+        if order=='ascend':
+            sparsity_seq = np.sort(sparsity_seq)
+        elif order=='descend':
+            sparsity_seq = np.sort(sparsity_seq)[::-1]
+        nsparsity = len(sparsity_seq)
+
+        beta_seq = np.zeros((self.X.shape[1], nsparsity+1))
+        nit_seq, robust_seq = [], []
+        for k in range(nsparsity):
+            model = self.l0(tau, robust, scale_invariant, \
+                            sparsity_seq[k], exp_size, beta_seq[:,k-1], \
+                            standardize, adjust, tol, max_iter)
+            beta_seq[:,k] = model['beta']
+            nit_seq.append(model['niter'])
+            robust_seq.append(model['robust_para'])
+
+        return {'beta_seq': beta_seq[:,:nsparsity],  
+                'size_seq': np.sum(beta_seq[self.itcp:,:nsparsity] != 0, axis=0),
+                'robust_seq': np.array(robust_seq),
+                'nit_seq': np.array(nit_seq)}
 
 
 class cv(high_dim):
