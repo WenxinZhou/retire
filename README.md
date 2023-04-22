@@ -1,6 +1,6 @@
 # pyexpectreg (Robust Expectile and Quantile Regression)
 
-Estimation and inference methods for expectile (asymmetric least squares) regression and its robust/Huberized counterpart. The iterative local adaptive majorize-minimize (ILAMM) algorithm is employed for computing *L<sub>1</sub>*-penalized and iteratively reweighted *L<sub>1</sub>*-penalized (IRW-*L<sub>1</sub>*) (robust) expectile regression estimates. Special cases include penalized least squares and Huber regressions. The IRW method is motivated by the local linear approximation (LLA) algorithm proposed by [Zou & Li (2008)](https://doi.org/10.1214/009053607000000802) for folded concave penalized estimation, typified by the SCAD penalty ([Fan & Li, 2001](https://fan.princeton.edu/papers/01/penlike.pdf)) and the minimax concave penalty (MCP) ([Zhang, 2010](https://doi.org/10.1214/09-AOS729)).
+Estimation and inference methods for expectile (asymmetric least squares) regression and its robust/Huberized variant [Man et al. (2022)](https://drive.google.com/file/d/1ldm9DhtB-yd3drPZfRFQ7JjUV51ocUHz/view). The iterative local adaptive majorize-minimize (ILAMM) algorithm is employed for computing *L<sub>1</sub>*-penalized and iteratively reweighted *L<sub>1</sub>*-penalized (IRW-*L<sub>1</sub>*) (robust) expectile regression estimates. Special cases include penalized least squares and Huber regressions. The IRW method is motivated by the local linear approximation (LLA) algorithm proposed by [Zou & Li (2008)](https://doi.org/10.1214/009053607000000802) for folded concave penalized estimation, typified by the SCAD penalty ([Fan & Li, 2001](https://fan.princeton.edu/papers/01/penlike.pdf)) and the minimax concave penalty (MCP) ([Zhang, 2010](https://doi.org/10.1214/09-AOS729)).
 
 
 
@@ -60,6 +60,9 @@ pd.DataFrame(sse, columns=['cd', 'ilamm'], index=['normal', 't_2'])
 Fan, J., Liu, H., Sun, Q. and Zhang, T. (2018). I-LAMM for sparse learning: Simultaneous control of algorithmic complexity and statistical error. *Ann. Statist.* **46**(2) 814-841. [Paper](https://doi.org/10.1214/17-AOS1568)
 
 Gu, Y. and Zou, H. (2016). High-dimensional generalizations of asymmetric least squares regression and their application. *Ann. Statist.* **44**(6) 2661-2694. [Paper](https://doi.org/10.1214/15-AOS1431)
+
+Man, R., Tan, K. M., Wang, Z. and Zhou, W.-X. (2022). Retire: Robustified expectile regression in high dimensions. [Paper](https://drive.google.com/file/d/1ldm9DhtB-yd3drPZfRFQ7JjUV51ocUHz/view)
+
 
 Newey, W. K. and Powell, J. L. (1987). Asymmetric least squares estimation and testing. *Econometrica*. **55**(4) 819-847. [Paper](https://doi.org/10.2307/1911031)
 
