@@ -10,7 +10,8 @@ class low_dim():
         Robust Expectile Regression
         via Gradient Descent with Barzilai-Borwein Step Size
     '''
-    weights = ["Exponential", "Multinomial", "Rademacher", "Gaussian", "Uniform", "Folded-normal"]
+    weights = ["Exponential", "Multinomial", "Rademacher", 
+               "Gaussian", "Uniform", "Folded-normal"]
     opt = {'max_iter': 1e3, 'max_lr': 50, 'tol': 1e-5, 'nboot': 200}
 
     def __init__(self, X, Y, intercept=True, options=dict()):
@@ -54,7 +55,6 @@ class low_dim():
         '''
         return np.median(abs(x - np.median(x))) / norm.ppf(0.75)
 
-
     def ols(self):
         return np.linalg.solve(self.X.T.dot(self.X), self.X.T.dot(self.Y))
 
@@ -65,18 +65,14 @@ class low_dim():
         return 2 * np.where(x < 0, (1-tau) * x, tau * x)
 
     def _boot_weight(self, weight):
-        w1 = lambda n : rgt.multinomial(n, pvals=np.ones(n)/n)
-        w2 = lambda n : rgt.exponential(size=n)
-        w3 = lambda n : 2*rgt.binomial(1, 1/2, n)
-        w4 = lambda n : rgt.normal(1, 1, n)
-        w5 = lambda n : rgt.uniform(0, 2, n)
-        w6 = lambda n : abs(rgt.normal(size=n)) * np.sqrt(np.pi / 2)
+        boot = {'Multinomial': lambda n : rgt.multinomial(n, pvals=np.ones(n)/n), 
+                'Exponential': lambda n : rgt.exponential(size=n), 
+                'Rademacher': lambda n : 2*rgt.binomial(1, 1/2, n),
+                'Gaussian': lambda n : rgt.normal(1, 1, n), 
+                'Uniform': lambda n : rgt.uniform(0, 2, n), 
+                'Folded-normal': lambda n : abs(rgt.normal(size=n)) * np.sqrt(np.pi / 2)}
 
-        boot_dict = {'Multinomial': w1, 'Exponential': w2, 'Rademacher': w3,\
-                     'Gaussian': w4, 'Uniform': w5, 'Folded-normal': w6}
-
-        return boot_dict[weight](self.n)
-
+        return boot[weight](self.n)
 
     def _retire_weight(self, x, tau, c=False, w=np.array([])):
         if not c:
@@ -94,9 +90,8 @@ class low_dim():
         else:
             return - tmp * w
 
-
-    def fit(self, tau=0.5, robust=False, scale_invariant=True, \
-            beta0=np.array([]), res=np.array([]), weight=np.array([]), \
+    def fit(self, tau=0.5, robust=False, scale_invariant=True,
+            beta0=np.array([]), res=np.array([]), weight=np.array([]),
             standardize=True, adjust=True):
         '''
             Robust/Huberized Expectile Regression
@@ -153,7 +148,7 @@ class low_dim():
             c = max( robust * self.mad(self._asym(res, tau)) , 
                      0.1 * c0 )
 
-        grad0 = X.T.dot(self._retire_weight(res, tau, c, weight)) / X.shape[0]
+        grad0 = X.T.dot(self._retire_weight(res, tau, c, weight)) / self.n
         diff_beta = -grad0
         beta = beta0 + diff_beta
         res, t = self.Y - X.dot(beta), 0
@@ -163,14 +158,15 @@ class low_dim():
             if robust > 0 and scale_invariant:
                 c = max( robust * self.mad(self._asym(res, tau)) , 
                          0.1 * c0 )
-            grad1 = X.T.dot(self._retire_weight(res, tau, c, weight)) / X.shape[0]
+            grad1 = X.T.dot(self._retire_weight(res, tau, c, weight)) / self.n
             diff_grad = grad1 - grad0
             r0, r1 = diff_beta.dot(diff_beta), diff_grad.dot(diff_grad)
             if r1 == 0: lr = 1
             else:
                 r01 = diff_grad.dot(diff_beta)
-                lr1, lr2 = r01/r1, r0/r01
-                lr = min(abs(lr1), abs(lr2), self.opt['max_lr'])
+                lr = min(abs(r01/r1), abs(r0/r01))
+            
+            if self.opt['max_lr']: lr = min(lr, self.opt['max_lr'])
             grad0 = grad1 
             diff_beta = - lr * grad1
             beta += diff_beta
@@ -186,10 +182,10 @@ class low_dim():
                 'niter': t, 'lr_seq': np.array(lr_seq)}
 
 
-    def norm_ci(self, tau=0.5, robust=False, scale_invariant=True, \
+    def norm_ci(self, tau=0.5, robust=False, scale_invariant=True,
                 alpha=0.05, standardize=True):
         '''
-            Normal Calibrated Confidence Intervals
+            Normal-based Confidence Intervals
 
         Parameters
         ----------
@@ -242,8 +238,8 @@ class low_dim():
                 'acov': ACov}
 
 
-    def mb(self, tau=0.5, robust=False, scale_invariant=True, \
-           weight="Exponential", standardize=True):
+    def mb(self, tau=0.5, robust=False, scale_invariant=True,
+           weight="Multinomial", standardize=True):
         '''
             Multiplier Bootstrap Estimates
    
@@ -260,7 +256,7 @@ class low_dim():
                           the MAD of residuals at each iteration.
 
         weight : a character string representing one of the built-in bootstrap weight distributions; 
-                 default is "Exponential".
+                 default is "Multinomial".
 
         standardize : logical flag for x variable standardization prior to fitting the model; 
                       default is TRUE.
@@ -282,8 +278,8 @@ class low_dim():
         mb_beta[:,0], res = model['beta'], model['res']
 
         for b in range(self.opt['nboot']):
-            model = self.fit(tau, robust, scale_invariant=False, \
-                             beta0=mb_beta[:,0], res=res, \
+            model = self.fit(tau, robust, scale_invariant=False,
+                             beta0=mb_beta[:,0], res=res,
                              weight=self._boot_weight(weight), standardize=standardize)
             mb_beta[:,b + 1] = model['beta']
 
@@ -296,8 +292,8 @@ class low_dim():
         return mb_beta
 
     
-    def mb_ci(self, tau=0.5, robust=False, scale_invariant=True, \
-              weight="Exponential", standardize=True, alpha=0.05):
+    def mb_ci(self, tau=0.5, robust=False, scale_invariant=True,
+              weight="Multinomial", standardize=True, alpha=0.05):
         '''
             Multiplier Bootstrap Confidence Intervals
 
@@ -313,7 +309,7 @@ class low_dim():
                           parameter will be estimated by the MAD of residuals at each iteration.
 
         weight : a character string representing the random weight distribution;
-                 default is "Exponential".
+                 default is "Multinomial".
 
         standardize : logical flag for x variable standardization prior to fitting the model; 
                       default is TRUE.
